@@ -1,0 +1,1475 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local SoundService = game:GetService("SoundService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Prevent duplicate instances
+if PlayerGui:FindFirstChild("FnoUltimateGui") then
+    PlayerGui.FnoUltimateGui:Destroy()
+end
+
+-- ====================================================================
+-- 🎵 SOUND EFFECTS
+-- ====================================================================
+local function playSound(soundId, pitch)
+    task.spawn(function()
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://" .. tostring(soundId)
+        sound.Volume = 0.5
+        sound.Pitch = pitch or 1
+        sound.Parent = SoundService
+        sound:Play()
+        sound.Ended:Connect(function()
+            sound:Destroy()
+        end)
+    end)
+end
+
+local SOUNDS = {
+    Click = 6895079853,
+    Success = 6476100527,
+    Error = 2865227271
+}
+
+-- ====================================================================
+-- 🎨 THEME & BASE GUI
+-- ====================================================================
+local THEME = {
+    Background = Color3.fromRGB(15, 15, 20),
+    Sidebar    = Color3.fromRGB(20, 20, 26),
+    Card       = Color3.fromRGB(26, 26, 34),
+    TextLight  = Color3.fromRGB(245, 245, 255),
+    TextDim    = Color3.fromRGB(140, 140, 160),
+    Success    = Color3.fromRGB(46, 204, 113),
+    Danger     = Color3.fromRGB(235, 60, 60)
+}
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FnoUltimateGui"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = PlayerGui
+
+-- Border Stroke Trackers (Affects ONLY borders/strokes)
+local registeredStrokes = {}
+local currentThemeMode = "Chromatic"
+local staticBorderColor = Color3.fromRGB(145, 120, 255)
+
+local function attachManagedStroke(parentObject, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = thickness or 1.5
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = parentObject
+
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 50, 50)),
+        ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 220, 50)),
+        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(50, 255, 120)),
+        ColorSequenceKeypoint.new(0.75, Color3.fromRGB(50, 160, 255)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(200, 50, 255))
+    })
+    gradient.Parent = stroke
+
+    table.insert(registeredStrokes, {stroke = stroke, gradient = gradient})
+    return stroke
+end
+
+RunService.RenderStepped:Connect(function()
+    if currentThemeMode == "Chromatic" then
+        local rot = (tick() * 90) % 360
+        for _, item in ipairs(registeredStrokes) do
+            if item.gradient and item.gradient.Parent then
+                item.gradient.Enabled = true
+                item.gradient.Rotation = rot
+            end
+        end
+    else
+        for _, item in ipairs(registeredStrokes) do
+            if item.gradient and item.gradient.Parent then
+                item.gradient.Enabled = false
+                item.stroke.Color = staticBorderColor
+            end
+        end
+    end
+end)
+
+-- Dragging Handler
+local function makeDraggable(topbar, object)
+    local dragging = false
+    local dragInput, dragStart, startPos
+
+    topbar.Active = true
+    object.Active = true
+
+    topbar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = object.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    topbar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            TweenService:Create(object, TweenInfo.new(0.06, Enum.EasingStyle.Sine), {
+                Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            }):Play()
+        end
+    end)
+end
+
+-- Notification Display
+local function showNotification(title, message)
+    local notifFrame = Instance.new("Frame")
+    notifFrame.Size = UDim2.new(0, 270, 0, 68)
+    notifFrame.Position = UDim2.new(1, 20, 1, -85)
+    notifFrame.BackgroundColor3 = THEME.Sidebar
+    notifFrame.BorderSizePixel = 0
+    notifFrame.Active = true
+    notifFrame.Parent = screenGui
+    Instance.new("UICorner", notifFrame).CornerRadius = UDim.new(0, 10)
+    attachManagedStroke(notifFrame, 1.5)
+
+    local titleLbl = Instance.new("TextLabel")
+    titleLbl.Size = UDim2.new(1, -20, 0, 24)
+    titleLbl.Position = UDim2.new(0, 12, 0, 8)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Text = title
+    titleLbl.TextColor3 = THEME.TextLight
+    titleLbl.Font = Enum.Font.GothamBold
+    titleLbl.TextSize = 13
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+    titleLbl.Parent = notifFrame
+
+    local msgLbl = Instance.new("TextLabel")
+    msgLbl.Size = UDim2.new(1, -20, 0, 24)
+    msgLbl.Position = UDim2.new(0, 12, 0, 32)
+    msgLbl.BackgroundTransparency = 1
+    msgLbl.Text = message
+    msgLbl.TextColor3 = THEME.TextDim
+    msgLbl.Font = Enum.Font.Gotham
+    msgLbl.TextSize = 11
+    msgLbl.TextXAlignment = Enum.TextXAlignment.Left
+    msgLbl.Parent = notifFrame
+
+    playSound(SOUNDS.Success, 1.1)
+
+    TweenService:Create(notifFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(1, -285, 1, -85)
+    }):Play()
+
+    task.delay(4.5, function()
+        if notifFrame and notifFrame.Parent then
+            local tweenOut = TweenService:Create(notifFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position = UDim2.new(1, 20, 1, -85)
+            })
+            tweenOut:Play()
+            tweenOut.Completed:Connect(function()
+                notifFrame:Destroy()
+            end)
+        end
+    end)
+end
+
+-- ====================================================================
+-- 🔑 KEY SYSTEM WINDOW
+-- ====================================================================
+local keyFrame = Instance.new("Frame")
+keyFrame.Name = "KeyFrame"
+keyFrame.Size = UDim2.new(0, 330, 0, 210)
+keyFrame.Position = UDim2.new(0.5, -165, 0.5, -105)
+keyFrame.BackgroundColor3 = THEME.Background
+keyFrame.BorderSizePixel = 0
+keyFrame.Active = true
+keyFrame.Parent = screenGui
+
+Instance.new("UICorner", keyFrame).CornerRadius = UDim.new(0, 10)
+attachManagedStroke(keyFrame, 1.8)
+
+local keyHeader = Instance.new("Frame")
+keyHeader.Size = UDim2.new(1, 0, 0, 40)
+keyHeader.BackgroundTransparency = 1
+keyHeader.Active = true
+keyHeader.Parent = keyFrame
+makeDraggable(keyHeader, keyFrame)
+
+local keyTitle = Instance.new("TextLabel")
+keyTitle.Size = UDim2.new(1, -50, 1, 0)
+keyTitle.Position = UDim2.new(0, 14, 0, 0)
+keyTitle.BackgroundTransparency = 1
+keyTitle.Text = "AUTHENTICATION"
+keyTitle.TextColor3 = THEME.TextLight
+keyTitle.Font = Enum.Font.GothamBold
+keyTitle.TextSize = 13
+keyTitle.TextXAlignment = Enum.TextXAlignment.Left
+keyTitle.Parent = keyHeader
+
+local keyCloseBtn = Instance.new("TextButton")
+keyCloseBtn.Size = UDim2.new(0, 24, 0, 24)
+keyCloseBtn.Position = UDim2.new(1, -32, 0, 8)
+keyCloseBtn.BackgroundColor3 = THEME.Card
+keyCloseBtn.Text = "✕"
+keyCloseBtn.TextColor3 = THEME.TextDim
+keyCloseBtn.Font = Enum.Font.GothamBold
+keyCloseBtn.TextSize = 11
+keyCloseBtn.Parent = keyHeader
+Instance.new("UICorner", keyCloseBtn).CornerRadius = UDim.new(0, 5)
+
+keyCloseBtn.MouseButton1Click:Connect(function()
+    playSound(SOUNDS.Click, 0.9)
+    screenGui:Destroy()
+end)
+
+local keyDesc = Instance.new("TextLabel")
+keyDesc.Size = UDim2.new(1, -28, 0, 28)
+keyDesc.Position = UDim2.new(0, 14, 0, 44)
+keyDesc.BackgroundTransparency = 1
+keyDesc.Text = "Enter your license key to access Fno's Creation."
+keyDesc.TextColor3 = THEME.TextDim
+keyDesc.Font = Enum.Font.Gotham
+keyDesc.TextSize = 11
+keyDesc.TextXAlignment = Enum.TextXAlignment.Left
+keyDesc.Parent = keyFrame
+
+local keyBox = Instance.new("TextBox")
+keyBox.Size = UDim2.new(1, -28, 0, 38)
+keyBox.Position = UDim2.new(0, 14, 0, 78)
+keyBox.BackgroundColor3 = THEME.Card
+keyBox.PlaceholderText = "Paste key here..."
+keyBox.PlaceholderColor3 = THEME.TextDim
+keyBox.Text = ""
+keyBox.TextColor3 = THEME.TextLight
+keyBox.Font = Enum.Font.GothamMedium
+keyBox.TextSize = 12
+keyBox.ClearTextOnFocus = false
+keyBox.Parent = keyFrame
+Instance.new("UICorner", keyBox).CornerRadius = UDim.new(0, 6)
+
+local submitBtn = Instance.new("TextButton")
+submitBtn.Size = UDim2.new(1, -28, 0, 36)
+submitBtn.Position = UDim2.new(0, 14, 0, 126)
+submitBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+submitBtn.Text = "Verify Key"
+submitBtn.TextColor3 = THEME.TextLight
+submitBtn.Font = Enum.Font.GothamBold
+submitBtn.TextSize = 12
+submitBtn.Parent = keyFrame
+Instance.new("UICorner", submitBtn).CornerRadius = UDim.new(0, 6)
+attachManagedStroke(submitBtn, 1)
+
+local errorPopup = Instance.new("Frame")
+errorPopup.Size = UDim2.new(0, 260, 0, 110)
+errorPopup.Position = UDim2.new(0.5, -130, 0.5, -55)
+errorPopup.BackgroundColor3 = THEME.Sidebar
+errorPopup.BorderSizePixel = 0
+errorPopup.Visible = false
+errorPopup.ZIndex = 10
+errorPopup.Active = true
+errorPopup.Parent = keyFrame
+Instance.new("UICorner", errorPopup).CornerRadius = UDim.new(0, 8)
+local errStroke = Instance.new("UIStroke", errorPopup)
+errStroke.Color = THEME.Danger
+errStroke.Thickness = 1.5
+
+local errTitle = Instance.new("TextLabel")
+errTitle.Size = UDim2.new(1, 0, 0, 30)
+errTitle.Position = UDim2.new(0, 0, 0, 10)
+errTitle.BackgroundTransparency = 1
+errTitle.Text = "ACCESS DENIED"
+errTitle.TextColor3 = THEME.Danger
+errTitle.Font = Enum.Font.GothamBold
+errTitle.TextSize = 13
+errTitle.ZIndex = 11
+errTitle.Parent = errorPopup
+
+local errMsg = Instance.new("TextLabel")
+errMsg.Size = UDim2.new(1, -20, 0, 20)
+errMsg.Position = UDim2.new(0, 10, 0, 40)
+errMsg.BackgroundTransparency = 1
+errMsg.Text = "The key you provided is invalid."
+errMsg.TextColor3 = THEME.TextLight
+errMsg.Font = Enum.Font.Gotham
+errMsg.TextSize = 11
+errMsg.ZIndex = 11
+errMsg.Parent = errorPopup
+
+local errOkBtn = Instance.new("TextButton")
+errOkBtn.Size = UDim2.new(0, 80, 0, 26)
+errOkBtn.Position = UDim2.new(0.5, -40, 0, 68)
+errOkBtn.BackgroundColor3 = THEME.Card
+errOkBtn.Text = "Dismiss"
+errOkBtn.TextColor3 = THEME.TextLight
+errOkBtn.Font = Enum.Font.GothamBold
+errOkBtn.TextSize = 11
+errOkBtn.ZIndex = 11
+errOkBtn.Parent = errorPopup
+Instance.new("UICorner", errOkBtn).CornerRadius = UDim.new(0, 5)
+
+local function triggerErrorPopup()
+    playSound(SOUNDS.Error, 1)
+    errorPopup.Visible = true
+    errorPopup.Size = UDim2.new(0, 0, 0, 0)
+    errorPopup.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+    TweenService:Create(errorPopup, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(0, 260, 0, 110),
+        Position = UDim2.new(0.5, -130, 0.5, -55)
+    }):Play()
+
+    local origPos = keyFrame.Position
+    task.spawn(function()
+        for _ = 1, 3 do
+            keyFrame.Position = origPos + UDim2.new(0, 5, 0, 0)
+            task.wait(0.03)
+            keyFrame.Position = origPos + UDim2.new(0, -5, 0, 0)
+            task.wait(0.03)
+        end
+        keyFrame.Position = origPos
+    end)
+end
+
+errOkBtn.MouseButton1Click:Connect(function()
+    playSound(SOUNDS.Click, 1)
+    local tween = TweenService:Create(errorPopup, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+        Size = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0)
+    })
+    tween:Play()
+    tween.Completed:Connect(function()
+        errorPopup.Visible = false
+    end)
+end)
+
+-- ====================================================================
+-- 👑 MAIN WINDOW
+-- ====================================================================
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 500, 0, 340)
+mainFrame.Position = UDim2.new(0.5, -250, 0.5, -170)
+mainFrame.BackgroundColor3 = THEME.Background
+mainFrame.BorderSizePixel = 0
+mainFrame.ClipsDescendants = true
+mainFrame.Active = true
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+attachManagedStroke(mainFrame, 1.8)
+
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 42)
+topBar.BackgroundColor3 = THEME.Sidebar
+topBar.BorderSizePixel = 0
+topBar.Active = true
+topBar.Parent = mainFrame
+makeDraggable(topBar, mainFrame)
+
+local mainTitle = Instance.new("TextLabel")
+mainTitle.Size = UDim2.new(1, -110, 1, 0)
+mainTitle.Position = UDim2.new(0, 14, 0, 0)
+mainTitle.BackgroundTransparency = 1
+mainTitle.Text = "Fno's Ultimate Creation"
+mainTitle.TextColor3 = THEME.TextLight
+mainTitle.Font = Enum.Font.GothamBold
+mainTitle.TextSize = 13
+mainTitle.TextXAlignment = Enum.TextXAlignment.Left
+mainTitle.Parent = topBar
+
+local minBtn = Instance.new("TextButton")
+minBtn.Size = UDim2.new(0, 26, 0, 26)
+minBtn.Position = UDim2.new(1, -62, 0, 8)
+minBtn.BackgroundColor3 = THEME.Card
+minBtn.Text = "—"
+minBtn.TextColor3 = THEME.TextLight
+minBtn.Font = Enum.Font.GothamBold
+minBtn.TextSize = 11
+minBtn.Parent = topBar
+Instance.new("UICorner", minBtn).CornerRadius = UDim.new(0, 5)
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 26, 0, 26)
+closeBtn.Position = UDim2.new(1, -32, 0, 8)
+closeBtn.BackgroundColor3 = THEME.Danger
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = THEME.TextLight
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 11
+closeBtn.Parent = topBar
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 5)
+
+local sideBar = Instance.new("Frame")
+sideBar.Size = UDim2.new(0, 120, 1, -42)
+sideBar.Position = UDim2.new(0, 0, 0, 42)
+sideBar.BackgroundColor3 = THEME.Sidebar
+sideBar.BorderSizePixel = 0
+sideBar.Active = true
+sideBar.Parent = mainFrame
+
+local sideLayout = Instance.new("UIListLayout")
+sideLayout.Padding = UDim.new(0, 6)
+sideLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sideLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sideLayout.Parent = sideBar
+
+local sidePadding = Instance.new("UIPadding")
+sidePadding.PaddingTop = UDim.new(0, 10)
+sidePadding.Parent = sideBar
+
+local contentContainer = Instance.new("Frame")
+contentContainer.Size = UDim2.new(1, -120, 1, -42)
+contentContainer.Position = UDim2.new(0, 120, 0, 42)
+contentContainer.BackgroundTransparency = 1
+contentContainer.Active = true
+contentContainer.Parent = mainFrame
+
+local tabs = {}
+local tabButtons = {}
+
+local function createTab(tabName)
+    local page = Instance.new("ScrollingFrame")
+    page.Name = tabName .. "Page"
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.ScrollBarThickness = 3
+    page.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 160)
+    page.BorderSizePixel = 0
+    page.Visible = false
+    page.Active = true
+    page.Parent = contentContainer
+
+    local pageLayout = Instance.new("UIListLayout")
+    pageLayout.Padding = UDim.new(0, 8)
+    pageLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    pageLayout.Parent = page
+
+    local pagePadding = Instance.new("UIPadding")
+    pagePadding.PaddingTop = UDim.new(0, 10)
+    pagePadding.PaddingLeft = UDim.new(0, 12)
+    pagePadding.PaddingRight = UDim.new(0, 12)
+    pagePadding.PaddingBottom = UDim.new(0, 10)
+    pagePadding.Parent = page
+
+    pageLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        page.CanvasSize = UDim2.new(0, 0, 0, pageLayout.AbsoluteContentSize.Y + 20)
+    end)
+
+    local btn = Instance.new("TextButton")
+    btn.Name = tabName .. "TabBtn"
+    btn.Size = UDim2.new(0.86, 0, 0, 32)
+    btn.BackgroundColor3 = THEME.Card
+    btn.Text = tabName
+    btn.TextColor3 = THEME.TextDim
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 12
+    btn.Parent = sideBar
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    tabs[tabName] = page
+    tabButtons[tabName] = btn
+
+    btn.MouseButton1Click:Connect(function()
+        playSound(SOUNDS.Click, 1.1)
+        for name, otherPage in pairs(tabs) do
+            local otherBtn = tabButtons[name]
+            if name == tabName then
+                otherPage.Visible = true
+                TweenService:Create(otherBtn, TweenInfo.new(0.15), {
+                    BackgroundColor3 = Color3.fromRGB(50, 50, 70),
+                    TextColor3 = THEME.TextLight
+                }):Play()
+            else
+                otherPage.Visible = false
+                TweenService:Create(otherBtn, TweenInfo.new(0.15), {
+                    BackgroundColor3 = THEME.Card,
+                    TextColor3 = THEME.TextDim
+                }):Play()
+            end
+        end
+    end)
+
+    return page
+end
+
+local playerTab     = createTab("Player")
+local bypassTab     = createTab("Bypass")
+local animationsTab = createTab("Animations")
+local miscTab       = createTab("Misc")
+local creditsTab    = createTab("Credits")
+
+tabs["Player"].Visible = true
+tabButtons["Player"].BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+tabButtons["Player"].TextColor3 = THEME.TextLight
+
+-- ====================================================================
+-- 🛠️ UI HELPERS (Toggles & Sliders)
+-- ====================================================================
+local function createToggle(parent, title, defaultState, callback)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, 0, 0, 42)
+    card.BackgroundColor3 = THEME.Card
+    card.BorderSizePixel = 0
+    card.Active = true
+    card.Parent = parent
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -60, 1, 0)
+    label.Position = UDim2.new(0, 12, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = title
+    label.TextColor3 = THEME.TextLight
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = card
+
+    local switch = Instance.new("TextButton")
+    switch.Size = UDim2.new(0, 40, 0, 20)
+    switch.Position = UDim2.new(1, -50, 0.5, -10)
+    switch.BackgroundColor3 = defaultState and THEME.Success or THEME.Sidebar
+    switch.Text = ""
+    switch.Parent = card
+    Instance.new("UICorner", switch).CornerRadius = UDim.new(1, 0)
+
+    local circle = Instance.new("Frame")
+    circle.Size = UDim2.new(0, 14, 0, 14)
+    circle.Position = defaultState and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+    circle.BackgroundColor3 = THEME.TextLight
+    circle.BorderSizePixel = 0
+    circle.Parent = switch
+    Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+
+    local state = defaultState
+    switch.MouseButton1Click:Connect(function()
+        playSound(SOUNDS.Click, 1.2)
+        state = not state
+        local targetColor = state and THEME.Success or THEME.Sidebar
+        local targetPos = state and UDim2.new(1, -17, 0.5, -7) or UDim2.new(0, 3, 0.5, -7)
+
+        TweenService:Create(switch, TweenInfo.new(0.15), {BackgroundColor3 = targetColor}):Play()
+        TweenService:Create(circle, TweenInfo.new(0.15), {Position = targetPos}):Play()
+
+        callback(state)
+    end)
+end
+
+local function createSlider(parent, title, minVal, maxVal, defaultVal, callback)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, 0, 0, 54)
+    card.BackgroundColor3 = THEME.Card
+    card.BorderSizePixel = 0
+    card.Active = true
+    card.Parent = parent
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.65, 0, 0, 20)
+    label.Position = UDim2.new(0, 12, 0, 6)
+    label.BackgroundTransparency = 1
+    label.Text = title
+    label.TextColor3 = THEME.TextLight
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = card
+
+    local valLabel = Instance.new("TextLabel")
+    valLabel.Size = UDim2.new(0.3, -12, 0, 20)
+    valLabel.Position = UDim2.new(0.7, 0, 0, 6)
+    valLabel.BackgroundTransparency = 1
+    valLabel.Text = tostring(defaultVal)
+    valLabel.TextColor3 = Color3.fromRGB(150, 180, 255)
+    valLabel.Font = Enum.Font.GothamBold
+    valLabel.TextSize = 12
+    valLabel.TextXAlignment = Enum.TextXAlignment.Right
+    valLabel.Parent = card
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, -24, 0, 5)
+    track.Position = UDim2.new(0, 12, 0, 35)
+    track.BackgroundColor3 = THEME.Sidebar
+    track.BorderSizePixel = 0
+    track.Active = true
+    track.Parent = card
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+    local initPercent = math.clamp((defaultVal - minVal) / (maxVal - minVal), 0, 1)
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new(initPercent, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(120, 140, 255)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+
+    local dragging = false
+
+    local function updateValue(inputX)
+        local rel = math.clamp((inputX - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+        fill.Size = UDim2.new(rel, 0, 1, 0)
+        local calculatedVal = math.floor(minVal + ((maxVal - minVal) * rel))
+        valLabel.Text = tostring(calculatedVal)
+        callback(calculatedVal)
+    end
+
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            updateValue(input.Position.X)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateValue(input.Position.X)
+        end
+    end)
+end
+
+-- ====================================================================
+-- ⚡ PLAYER SECTION CONTROLS
+-- ====================================================================
+local speedEnabled = false
+local currentSpeed = 16
+local infJumpEnabled = false
+local flyEnabled = false
+local flySpeed = 50
+
+local function getHumanoid()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRootPart()
+    local char = LocalPlayer.Character
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+createToggle(playerTab, "Speed Modifier", false, function(state)
+    speedEnabled = state
+    local hum = getHumanoid()
+    if hum then
+        hum.WalkSpeed = state and currentSpeed or 16
+    end
+end)
+
+createSlider(playerTab, "WalkSpeed Value", 16, 500, 16, function(val)
+    currentSpeed = val
+    if speedEnabled then
+        local hum = getHumanoid()
+        if hum then hum.WalkSpeed = val end
+    end
+end)
+
+createToggle(playerTab, "Infinite Jump", false, function(state)
+    infJumpEnabled = state
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    if infJumpEnabled then
+        local root = getRootPart()
+        local hum = getHumanoid()
+        if root and hum and hum.Health > 0 then
+            root.AssemblyLinearVelocity = Vector3.new(root.AssemblyLinearVelocity.X, 50, root.AssemblyLinearVelocity.Z)
+        end
+    end
+end)
+
+local flightConnection = nil
+
+local function stopFlight()
+    if flightConnection then
+        flightConnection:Disconnect()
+        flightConnection = nil
+    end
+
+    local root = getRootPart()
+    if root then
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+
+    local hum = getHumanoid()
+    if hum then
+        hum.PlatformStand = false
+    end
+end
+
+local function startFlight()
+    stopFlight()
+
+    flightConnection = RunService.RenderStepped:Connect(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local cam = workspace.CurrentCamera
+
+        if not root or not hum or not cam then return end
+
+        hum.PlatformStand = true
+
+        local moveDir = Vector3.zero
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveDir = moveDir + cam.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveDir = moveDir - cam.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveDir = moveDir - cam.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveDir = moveDir + cam.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            moveDir = moveDir + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+            moveDir = moveDir - Vector3.new(0, 1, 0)
+        end
+
+        if moveDir.Magnitude > 0 then
+            root.AssemblyLinearVelocity = moveDir.Unit * flySpeed
+        else
+            root.AssemblyLinearVelocity = Vector3.zero
+        end
+        root.AssemblyAngularVelocity = Vector3.zero
+    end)
+end
+
+createToggle(playerTab, "Flight Mode", false, function(state)
+    flyEnabled = state
+    if state then
+        startFlight()
+    else
+        stopFlight()
+    end
+end)
+
+createSlider(playerTab, "Flight Speed", 16, 500, 50, function(val)
+    flySpeed = val
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum and speedEnabled then
+        hum.WalkSpeed = currentSpeed
+    end
+    if flyEnabled then
+        task.wait(0.2)
+        startFlight()
+    end
+end)
+
+-- ====================================================================
+-- ☠️ BYPASS SECTION (NOSTUN + NOPUNCH, INVINCIBLE WITH HITBOX PURGE)
+-- ====================================================================
+
+-- 1. NoStun (Includes NoPunch)
+local noStunEnabled = false
+local STUN_NAMES = {
+    ["StopRunning"] = true,
+    ["NoBlock"]     = true,
+    ["NoJump"]      = true,
+    ["Slowed"]      = true,
+    ["Freeze"]      = true,
+    ["ComboStun"]   = true,
+    ["NoPunch"]     = true
+}
+
+local function handleStunObject(obj)
+    if noStunEnabled and STUN_NAMES[obj.Name] then
+        task.defer(function()
+            if obj and obj.Parent then
+                obj:Destroy()
+            end
+        end)
+        local hum = getHumanoid()
+        if hum then
+            hum.WalkSpeed = speedEnabled and currentSpeed or 16
+            hum.JumpPower = 50
+            hum.PlatformStand = false
+        end
+    end
+end
+
+local function hookNoStun(character)
+    if not character then return end
+    for _, child in ipairs(character:GetDescendants()) do
+        handleStunObject(child)
+    end
+    character.DescendantAdded:Connect(function(child)
+        handleStunObject(child)
+    end)
+end
+
+if LocalPlayer.Character then hookNoStun(LocalPlayer.Character) end
+LocalPlayer.CharacterAdded:Connect(hookNoStun)
+
+createToggle(bypassTab, "NoStun", false, function(state)
+    noStunEnabled = state
+    if state and LocalPlayer.Character then
+        for _, child in ipairs(LocalPlayer.Character:GetDescendants()) do
+            handleStunObject(child)
+        end
+    end
+end)
+
+-- 2. Invincible (Forcefield + Delete Hitbox parts + Auto Reset on Disable if Missing)
+local invincibleEnabled = false
+local hitboxDeleteConnChar = nil
+local hitboxDeleteConnLive = nil
+local forcefieldConn = nil
+
+local function getLiveFolderCharacter()
+    local live = workspace:FindFirstChild("Live")
+    if live then
+        return live:FindFirstChild(LocalPlayer.Name) or (LocalPlayer.Character and live:FindFirstChild(LocalPlayer.Character.Name))
+    end
+    return nil
+end
+
+local function purgeHitboxesFrom(model)
+    if not model then return end
+    for _, obj in ipairs(model:GetChildren()) do
+        if obj:IsA("BasePart") and string.sub(obj.Name, 1, 7) == "Hitbox_" then
+            task.defer(function()
+                if obj and obj.Parent then
+                    obj:Destroy()
+                end
+            end)
+        end
+    end
+end
+
+local function countHitboxes(model)
+    local count = 0
+    if model then
+        for _, obj in ipairs(model:GetChildren()) do
+            if obj:IsA("BasePart") and string.sub(obj.Name, 1, 7) == "Hitbox_" then
+                count += 1
+            end
+        end
+    end
+    return count
+end
+
+createToggle(bypassTab, "Invincible", false, function(state)
+    invincibleEnabled = state
+
+    if state then
+        -- Apply "Forcefield"
+        local char = LocalPlayer.Character
+        if char then
+            local ff = char:FindFirstChild("Forcefield")
+            if not ff or not ff:IsA("ForceField") then
+                local newFf = Instance.new("ForceField")
+                newFf.Name = "Forcefield"
+                newFf.Visible = false
+                newFf.Parent = char
+            end
+        end
+
+        forcefieldConn = RunService.Heartbeat:Connect(function()
+            if invincibleEnabled then
+                local c = LocalPlayer.Character
+                if c and not c:FindFirstChild("Forcefield") then
+                    local newFf = Instance.new("ForceField")
+                    newFf.Name = "Forcefield"
+                    newFf.Visible = false
+                    newFf.Parent = c
+                end
+            end
+        end)
+
+        -- Initial purge
+        purgeHitboxesFrom(LocalPlayer.Character)
+        purgeHitboxesFrom(getLiveFolderCharacter())
+
+        -- Prevent new hitboxes from adding
+        if LocalPlayer.Character then
+            hitboxDeleteConnChar = LocalPlayer.Character.ChildAdded:Connect(function(child)
+                if invincibleEnabled and child:IsA("BasePart") and string.sub(child.Name, 1, 7) == "Hitbox_" then
+                    task.defer(function()
+                        if child and child.Parent then child:Destroy() end
+                    end)
+                end
+            end)
+        end
+
+        local liveChar = getLiveFolderCharacter()
+        if liveChar then
+            hitboxDeleteConnLive = liveChar.ChildAdded:Connect(function(child)
+                if invincibleEnabled and child:IsA("BasePart") and string.sub(child.Name, 1, 7) == "Hitbox_" then
+                    task.defer(function()
+                        if child and child.Parent then child:Destroy() end
+                    end)
+                end
+            end)
+        end
+    else
+        -- Clean up listeners and Forcefield
+        if hitboxDeleteConnChar then hitboxDeleteConnChar:Disconnect(); hitboxDeleteConnChar = nil end
+        if hitboxDeleteConnLive then hitboxDeleteConnLive:Disconnect(); hitboxDeleteConnLive = nil end
+        if forcefieldConn then forcefieldConn:Disconnect(); forcefieldConn = nil end
+
+        local char = LocalPlayer.Character
+        local ff = char and char:FindFirstChild("Forcefield")
+        if ff then ff:Destroy() end
+
+        -- Verify hitboxes restore; if not returned within 1s, reset character
+        task.delay(1, function()
+            if not invincibleEnabled then
+                local currentLive = getLiveFolderCharacter() or LocalPlayer.Character
+                local hitboxesNow = countHitboxes(currentLive)
+                if hitboxesNow == 0 then
+                    local hum = getHumanoid()
+                    if hum and hum.Health > 0 then
+                        hum:ChangeState(Enum.HumanoidStateType.Dead)
+                        hum.Health = 0
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+-- 3. Death Counter Highlight
+local highlightActive = false
+local isBypassingDeathCounter = false
+local teleportPosition = Vector3.new(240.31468200683594, -491.9150390625, -183.96755981445312)
+local platformSize = Vector3.new(10, 1, 10)
+local loopDuration = 5
+local teleportInterval = 0.05
+
+local function setupCounterHighlight(character)
+    if not character or not character:IsA("Model") then return end
+    if character:GetAttribute("CounterHooked") then return end
+    character:SetAttribute("CounterHooked", true)
+
+    local function updateHighlight()
+        if not character.Parent then return end
+        local hasCounter = highlightActive and (character:FindFirstChild("Counter", true) ~= nil)
+
+        if hasCounter then
+            if not character:FindFirstChild("CounterHighlight") then
+                local hl = Instance.new("Highlight")
+                hl.Name = "CounterHighlight"
+                hl.FillColor = Color3.fromRGB(255, 0, 0)
+                hl.FillTransparency = 0.5
+                hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                hl.Parent = character
+            end
+
+            if not character:FindFirstChild("CounterTextGui") then
+                local head = character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart")
+                if head then
+                    local bb = Instance.new("BillboardGui")
+                    bb.Name = "CounterTextGui"
+                    bb.Size = UDim2.new(0, 200, 0, 50)
+                    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+                    bb.AlwaysOnTop = true
+                    bb.Parent = character
+                    bb.Adornee = head
+
+                    local txt = Instance.new("TextLabel")
+                    txt.Size = UDim2.new(1, 0, 1, 0)
+                    txt.BackgroundTransparency = 1
+                    txt.Text = "Death Counter Enabled"
+                    txt.TextColor3 = Color3.fromRGB(255, 50, 50)
+                    txt.TextStrokeTransparency = 0
+                    txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+                    txt.TextScaled = false
+                    txt.TextSize = 20
+                    txt.Font = Enum.Font.GothamBold
+                    txt.Parent = bb
+                end
+            end
+        else
+            local hl = character:FindFirstChild("CounterHighlight")
+            if hl then hl:Destroy() end
+
+            local bb = character:FindFirstChild("CounterTextGui")
+            if bb then bb:Destroy() end
+        end
+    end
+
+    RunService.Heartbeat:Connect(updateHighlight)
+    updateHighlight()
+
+    character.DescendantAdded:Connect(function(child)
+        if child.Name == "Counter" then updateHighlight() end
+    end)
+    character.DescendantRemoving:Connect(function(child)
+        if child.Name == "Counter" then task.defer(updateHighlight) end
+    end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    if p.Character then setupCounterHighlight(p.Character) end
+    p.CharacterAdded:Connect(setupCounterHighlight)
+end
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(setupCounterHighlight)
+end)
+
+local liveFolder = workspace:FindFirstChild("Live")
+if liveFolder then
+    for _, child in ipairs(liveFolder:GetChildren()) do
+        setupCounterHighlight(child)
+    end
+    liveFolder.ChildAdded:Connect(setupCounterHighlight)
+end
+
+local function createChromaticPlatform(position)
+    local platform = Instance.new("Part")
+    platform.Name = "TemporaryPlatform"
+    platform.Size = platformSize
+    platform.Position = position
+    platform.Anchored = true
+    platform.Parent = workspace
+
+    local colorConn
+    colorConn = RunService.RenderStepped:Connect(function()
+        if platform and platform.Parent then
+            local hue = (tick() % 5) / 5
+            platform.Color = Color3.fromHSV(hue, 1, 1)
+        else
+            if colorConn then colorConn:Disconnect() end
+        end
+    end)
+
+    return platform
+end
+
+local function resetCamera()
+    local char = LocalPlayer.Character
+    local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        workspace.CurrentCamera.CameraSubject = humanoid
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+    end
+end
+
+createToggle(bypassTab, "Death Counter Highlight", false, function(state)
+    highlightActive = state
+end)
+
+-- 4. Death Counter Bypass Loop Button
+local bypassCard = Instance.new("Frame")
+bypassCard.Size = UDim2.new(1, 0, 0, 80)
+bypassCard.BackgroundColor3 = THEME.Card
+bypassCard.BorderSizePixel = 0
+bypassCard.Active = true
+bypassCard.Parent = bypassTab
+Instance.new("UICorner", bypassCard).CornerRadius = UDim.new(0, 6)
+
+local bypassDesc = Instance.new("TextLabel")
+bypassDesc.Size = UDim2.new(1, -20, 0, 24)
+bypassDesc.Position = UDim2.new(0, 10, 0, 6)
+bypassDesc.BackgroundTransparency = 1
+bypassDesc.Text = "Executes the chromatic teleport cycle to invalidate death counters."
+bypassDesc.TextColor3 = THEME.TextDim
+bypassDesc.Font = Enum.Font.Gotham
+bypassDesc.TextSize = 10
+bypassDesc.TextWrapped = true
+bypassDesc.TextXAlignment = Enum.TextXAlignment.Left
+bypassDesc.Parent = bypassCard
+
+local bypassBtn = Instance.new("TextButton")
+bypassBtn.Size = UDim2.new(1, -20, 0, 34)
+bypassBtn.Position = UDim2.new(0, 10, 0, 36)
+bypassBtn.BackgroundColor3 = THEME.Danger
+bypassBtn.Text = "Trigger Death Counter Bypass"
+bypassBtn.TextColor3 = THEME.TextLight
+bypassBtn.Font = Enum.Font.GothamBold
+bypassBtn.TextSize = 12
+bypassBtn.Parent = bypassCard
+Instance.new("UICorner", bypassBtn).CornerRadius = UDim.new(0, 6)
+
+bypassBtn.MouseButton1Click:Connect(function()
+    playSound(SOUNDS.Click, 1)
+    if isBypassingDeathCounter then return end
+
+    local char = LocalPlayer.Character
+    local rootPart = char and char:FindFirstChild("HumanoidRootPart")
+
+    if not rootPart then
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        rootPart = char:WaitForChild("HumanoidRootPart", 2)
+    end
+
+    if rootPart then
+        isBypassingDeathCounter = true
+        local savedPosition = rootPart.CFrame
+        local platform = createChromaticPlatform(teleportPosition + Vector3.new(0, -3, 0))
+
+        local startTime = tick()
+        task.spawn(function()
+            while tick() - startTime < loopDuration do
+                local elapsed = tick() - startTime
+                local remaining = math.max(0, loopDuration - elapsed)
+                bypassBtn.Text = string.format("Bypassing... (%.1fs)", remaining)
+
+                local currentRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if currentRoot then
+                    currentRoot.CFrame = CFrame.new(teleportPosition)
+                end
+
+                task.wait(teleportInterval)
+            end
+
+            platform:Destroy()
+
+            local finalChar = LocalPlayer.Character
+            local finalRoot = finalChar and finalChar:FindFirstChild("HumanoidRootPart")
+            if savedPosition and finalRoot then
+                finalRoot.CFrame = savedPosition
+            end
+            resetCamera()
+
+            bypassBtn.Text = "Trigger Death Counter Bypass"
+            isBypassingDeathCounter = false
+        end)
+    end
+end)
+
+-- ====================================================================
+-- 🎬 ANIMATIONS SECTION (GAME ANIMATIONPLAYER HOOK)
+-- ====================================================================
+local animPlayerModule = nil
+
+local function getAnimPlayer()
+    if animPlayerModule then return animPlayerModule end
+    local liveChar = getLiveFolderCharacter()
+    if liveChar then
+        local charHandler = liveChar:FindFirstChild("CharacterHandler")
+        local animScript = charHandler and charHandler:FindFirstChild("AnimationPlayer")
+        if animScript and animScript:IsA("ModuleScript") then
+            local success, res = pcall(require, animScript)
+            if success and type(res) == "table" then
+                animPlayerModule = res
+                return res
+            end
+        end
+    end
+    return nil
+end
+
+-- Swap Animation Card
+local swapCard = Instance.new("Frame")
+swapCard.Size = UDim2.new(1, 0, 0, 115)
+swapCard.BackgroundColor3 = THEME.Card
+swapCard.BorderSizePixel = 0
+swapCard.Active = true
+swapCard.Parent = animationsTab
+Instance.new("UICorner", swapCard).CornerRadius = UDim.new(0, 6)
+
+local swapTitle = Instance.new("TextLabel")
+swapTitle.Size = UDim2.new(1, -20, 0, 20)
+swapTitle.Position = UDim2.new(0, 10, 0, 6)
+swapTitle.BackgroundTransparency = 1
+swapTitle.Text = "Swap In-Game Animation ID"
+swapTitle.TextColor3 = THEME.TextLight
+swapTitle.Font = Enum.Font.GothamBold
+swapTitle.TextSize = 12
+swapTitle.TextXAlignment = Enum.TextXAlignment.Left
+swapTitle.Parent = swapCard
+
+local origIdBox = Instance.new("TextBox")
+origIdBox.Size = UDim2.new(0.48, -12, 0, 32)
+origIdBox.Position = UDim2.new(0, 10, 0, 30)
+origIdBox.BackgroundColor3 = THEME.Sidebar
+origIdBox.PlaceholderText = "Target ID (e.g. 85166661837727)"
+origIdBox.PlaceholderColor3 = THEME.TextDim
+origIdBox.Text = ""
+origIdBox.TextColor3 = THEME.TextLight
+origIdBox.Font = Enum.Font.GothamMedium
+origIdBox.TextSize = 11
+origIdBox.ClearTextOnFocus = false
+origIdBox.Parent = swapCard
+Instance.new("UICorner", origIdBox).CornerRadius = UDim.new(0, 5)
+
+local newIdBox = Instance.new("TextBox")
+newIdBox.Size = UDim2.new(0.48, -12, 0, 32)
+newIdBox.Position = UDim2.new(0.52, 2, 0, 30)
+newIdBox.BackgroundColor3 = THEME.Sidebar
+newIdBox.PlaceholderText = "Replacement ID"
+newIdBox.PlaceholderColor3 = THEME.TextDim
+newIdBox.Text = ""
+newIdBox.TextColor3 = THEME.TextLight
+newIdBox.Font = Enum.Font.GothamMedium
+newIdBox.TextSize = 11
+newIdBox.ClearTextOnFocus = false
+newIdBox.Parent = swapCard
+Instance.new("UICorner", newIdBox).CornerRadius = UDim.new(0, 5)
+
+local swapApplyBtn = Instance.new("TextButton")
+swapApplyBtn.Size = UDim2.new(1, -20, 0, 32)
+swapApplyBtn.Position = UDim2.new(0, 10, 0, 70)
+swapApplyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+swapApplyBtn.Text = "Apply Animation Redirection"
+swapApplyBtn.TextColor3 = THEME.TextLight
+swapApplyBtn.Font = Enum.Font.GothamBold
+swapApplyBtn.TextSize = 12
+swapApplyBtn.Parent = swapCard
+Instance.new("UICorner", swapApplyBtn).CornerRadius = UDim.new(0, 5)
+
+swapApplyBtn.MouseButton1Click:Connect(function()
+    playSound(SOUNDS.Click, 1)
+    local target = tonumber(origIdBox.Text:gsub("[^%-%d]", ""))
+    local replace = tonumber(newIdBox.Text:gsub("[^%-%d]", ""))
+
+    if not target or not replace then
+        showNotification("Animation Hook", "Please provide valid numeric IDs!")
+        return
+    end
+
+    local animMod = getAnimPlayer()
+    if animMod and animMod.mechanims then
+        animMod.mechanims[target] = { Looped = false, Priority = Enum.AnimationPriority.Action4, CustomId = replace }
+        showNotification("Animation Hook", "ID " .. target .. " replaced successfully!")
+    else
+        showNotification("Animation Hook", "Could not hook AnimationPlayer module.")
+    end
+end)
+
+-- Play Direct Animation Card
+local playCard = Instance.new("Frame")
+playCard.Size = UDim2.new(1, 0, 0, 80)
+playCard.BackgroundColor3 = THEME.Card
+playCard.BorderSizePixel = 0
+playCard.Active = true
+playCard.Parent = animationsTab
+Instance.new("UICorner", playCard).CornerRadius = UDim.new(0, 6)
+
+local playAnimInput = Instance.new("TextBox")
+playAnimInput.Size = UDim2.new(0.65, -10, 0, 34)
+playAnimInput.Position = UDim2.new(0, 10, 0, 22)
+playAnimInput.BackgroundColor3 = THEME.Sidebar
+playAnimInput.PlaceholderText = "Animation ID to Test"
+playAnimInput.PlaceholderColor3 = THEME.TextDim
+playAnimInput.Text = ""
+playAnimInput.TextColor3 = THEME.TextLight
+playAnimInput.Font = Enum.Font.GothamMedium
+playAnimInput.TextSize = 11
+playAnimInput.ClearTextOnFocus = false
+playAnimInput.Parent = playCard
+Instance.new("UICorner", playAnimInput).CornerRadius = UDim.new(0, 5)
+
+local playAnimBtn = Instance.new("TextButton")
+playAnimBtn.Size = UDim2.new(0.35, -16, 0, 34)
+playAnimBtn.Position = UDim2.new(0.65, 6, 0, 22)
+playAnimBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+playAnimBtn.Text = "Play Track"
+playAnimBtn.TextColor3 = THEME.TextLight
+playAnimBtn.Font = Enum.Font.GothamBold
+playAnimBtn.TextSize = 12
+playAnimBtn.Parent = playCard
+Instance.new("UICorner", playAnimBtn).CornerRadius = UDim.new(0, 5)
+
+playAnimBtn.MouseButton1Click:Connect(function()
+    playSound(SOUNDS.Click, 1)
+    local rawId = playAnimInput.Text:gsub("[^%-%d]", "")
+    local num = tonumber(rawId)
+    if not num then return end
+
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local animator = hum and (hum:FindFirstChildOfClass("Animator") or hum:WaitForChild("Animator", 2))
+
+    if animator then
+        local anim = Instance.new("Animation")
+        anim.AnimationId = "rbxassetid://" .. num
+        local track = animator:LoadAnimation(anim)
+        track.Priority = Enum.AnimationPriority.Action4
+        track:Play()
+        showNotification("Animation System", "Playing Track: " .. num)
+    end
+end)
+
+-- ====================================================================
+-- 🎨 MISC SECTION (BORDER-ONLY THEMES)
+-- ====================================================================
+local function createBorderThemeOption(name, color, isRainbow)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, 0, 0, 38)
+    card.BackgroundColor3 = THEME.Card
+    card.BorderSizePixel = 0
+    card.Active = true
+    card.Parent = miscTab
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
+
+    local titleLbl = Instance.new("TextLabel")
+    titleLbl.Size = UDim2.new(1, -90, 1, 0)
+    titleLbl.Position = UDim2.new(0, 12, 0, 0)
+    titleLbl.BackgroundTransparency = 1
+    titleLbl.Text = name
+    titleLbl.TextColor3 = THEME.TextLight
+    titleLbl.Font = Enum.Font.GothamMedium
+    titleLbl.TextSize = 12
+    titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+    titleLbl.Parent = card
+
+    local selectBtn = Instance.new("TextButton")
+    selectBtn.Size = UDim2.new(0, 64, 0, 24)
+    selectBtn.Position = UDim2.new(1, -74, 0.5, -12)
+    selectBtn.BackgroundColor3 = isRainbow and Color3.fromRGB(50, 50, 70) or color
+    selectBtn.Text = "Apply"
+    selectBtn.TextColor3 = THEME.TextLight
+    selectBtn.Font = Enum.Font.GothamBold
+    selectBtn.TextSize = 11
+    selectBtn.Parent = card
+    Instance.new("UICorner", selectBtn).CornerRadius = UDim.new(0, 4)
+
+    selectBtn.MouseButton1Click:Connect(function()
+        playSound(SOUNDS.Click, 1.2)
+        if isRainbow then
+            currentThemeMode = "Chromatic"
+        else
+            currentThemeMode = "Static"
+            staticBorderColor = color
+        end
+    end)
+end
+
+createBorderThemeOption("Rainbow Chromatic", Color3.fromRGB(255, 255, 255), true)
+createBorderThemeOption("Neon Purple", Color3.fromRGB(150, 80, 255), false)
+createBorderThemeOption("Cyber Cyan", Color3.fromRGB(0, 220, 255), false)
+createBorderThemeOption("Blood Red", Color3.fromRGB(255, 60, 60), false)
+createBorderThemeOption("Stealth Gray", Color3.fromRGB(90, 90, 105), false)
+
+-- ====================================================================
+-- 📜 CREDITS SECTION
+-- ====================================================================
+local function addCreditRow(title, desc)
+    local card = Instance.new("Frame")
+    card.Size = UDim2.new(1, 0, 0, 48)
+    card.BackgroundColor3 = THEME.Card
+    card.BorderSizePixel = 0
+    card.Active = true
+    card.Parent = creditsTab
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 6)
+
+    local lblTitle = Instance.new("TextLabel")
+    lblTitle.Size = UDim2.new(1, -20, 0, 18)
+    lblTitle.Position = UDim2.new(0, 10, 0, 6)
+    lblTitle.BackgroundTransparency = 1
+    lblTitle.Text = title
+    lblTitle.TextColor3 = THEME.TextLight
+    lblTitle.Font = Enum.Font.GothamBold
+    lblTitle.TextSize = 12
+    lblTitle.TextXAlignment = Enum.TextXAlignment.Left
+    lblTitle.Parent = card
+
+    local lblDesc = Instance.new("TextLabel")
+    lblDesc.Size = UDim2.new(1, -20, 0, 16)
+    lblDesc.Position = UDim2.new(0, 10, 0, 24)
+    lblDesc.BackgroundTransparency = 1
+    lblDesc.Text = desc
+    lblDesc.TextColor3 = THEME.TextDim
+    lblDesc.Font = Enum.Font.Gotham
+    lblDesc.TextSize = 10
+    lblDesc.TextXAlignment = Enum.TextXAlignment.Left
+    lblDesc.Parent = card
+end
+
+addCreditRow("Fno's Ultimate Creation", "Architected with responsive physics and chromatic neon aesthetics.")
+addCreditRow("Lead Engineer", "Scripted & Developed by Fno.")
+addCreditRow("Key Verification", "Secure key validation system.")
+
+-- ====================================================================
+-- 🔄 MINIMIZE & CLOSE HANDLING
+-- ====================================================================
+local isMinimized = false
+local normalSize = UDim2.new(0, 500, 0, 340)
+local minSize = UDim2.new(0, 500, 0, 42)
+
+minBtn.MouseButton1Click:Connect(function()
+    playSound(SOUNDS.Click, 1)
+    isMinimized = not isMinimized
+    if isMinimized then
+        contentContainer.Visible = false
+        sideBar.Visible = false
+        TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Size = minSize}):Play()
+        minBtn.Text = "＋"
+    else
+        local tween = TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Size = normalSize})
+        tween:Play()
+        tween.Completed:Connect(function()
+            if not isMinimized then
+                contentContainer.Visible = true
+                sideBar.Visible = true
+            end
+        end)
+        minBtn.Text = "—"
+    end
+end)
+
+closeBtn.MouseButton1Click:Connect(function()
+    playSound(SOUNDS.Click, 0.9)
+    stopFlight()
+    if hitboxDeleteConnChar then hitboxDeleteConnChar:Disconnect() end
+    if hitboxDeleteConnLive then hitboxDeleteConnLive:Disconnect() end
+    if forcefieldConn then forcefieldConn:Disconnect() end
+    screenGui:Destroy()
+end)
+
+-- ====================================================================
+-- 🔐 KEY SYSTEM VERIFICATION LOGIC
+-- ====================================================================
+local VALID_KEY = "FnoReal"
+
+submitBtn.MouseButton1Click:Connect(function()
+    if keyBox.Text == VALID_KEY then
+        playSound(SOUNDS.Success, 1)
+
+        TweenService:Create(keyFrame, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+            Size = UDim2.new(0, 0, 0, 0),
+            Position = UDim2.new(0.5, 0, 0.5, 0)
+        }):Play()
+
+        task.wait(0.22)
+        keyFrame:Destroy()
+
+        mainFrame.Visible = true
+        mainFrame.Size = UDim2.new(0, 200, 0, 140)
+        mainFrame.Position = UDim2.new(0.5, -100, 0.5, -70)
+
+        TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Size = normalSize,
+            Position = UDim2.new(0.5, -250, 0.5, -170)
+        }):Play()
+
+        showNotification("FnoNL Loaded", "Fuck Fake Scripts")
+    else
+        triggerErrorPopup()
+        keyBox.Text = ""
+    end
+end)
